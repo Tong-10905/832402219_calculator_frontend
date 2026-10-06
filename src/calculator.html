@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculator</title>
+<style>
+/* ============ CSS: handles colors (the color scheme is inspired by my favorite character,哈哈，不知道有没有人能看见) ============
+   Syntax: selector { property: value; }  — quite different from Java, but just simple key-value pairs */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #e3e6ee;   /* low-saturation gray-blue-purple */
+  color: #e8eaed;
+  min-height: 100vh;
+  display: flex;            /* flex layout: center the calculator and history panel side by side */
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;          /* wrap to the next line on narrow screens */
+  padding: 24px;
+}
+
+.card {
+  background: #232a3f;   /* dark navy card: visible on the light silver background */
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+.calculator { width: 320px; }
+
+.display {
+  background: #171b24;
+  border-radius: 10px;
+  padding: 16px;
+  font-size: 1.8rem;
+  text-align: right;         /* right-aligned expression, like a real calculator */
+  min-height: 64px;
+  overflow-x: auto;          /* scroll horizontally when the expression is too long */
+  margin-bottom: 8px;
+  white-space: nowrap;
+}
+
+.error {
+  min-height: 20px;
+  font-size: 0.85rem;
+  color: #ff7675;
+  margin-bottom: 8px;
+}
+
+/* Grid layout: arrange the buttons in 4 columns x 5 rows */
+.buttons {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+button {
+  border: none;
+  border-radius: 10px;
+  padding: 14px 0;
+  font-size: 1.2rem;
+  cursor: pointer;               /* pointer cursor on hover */
+  background: #6b74a8;   /* number keys: muted moonlight purple */
+  color: #e8eaed;
+  transition: filter 0.15s;      /* smooth brightness transition on hover */
+  position: relative;            /* lets the key hint badge anchor to the button's top-right corner */
+}
+
+button:hover { filter: brightness(1.25); }
+
+/* Key hint badge: shows the physical keyboard key for this button (e.g. ÷ is / on the keyboard) */
+.keyhint {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  font-size: 0.6rem;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.78);
+  pointer-events: none;          /* badge doesn't block clicks; they pass through to the button */
+}
+
+/* Class JS temporarily adds to the matching button on a key press; removed after 120ms */
+button.pressed { filter: brightness(1.5); }
+
+/* One-line keyboard shortcut guide under the calculator */
+.kbd-tips {
+  margin-top: 10px;
+  font-size: 0.7rem;
+  color: #8b94a8;
+  text-align: center;
+}
+
+.op     { background: #3a5bd9; }   /* operators: ribbon blue */
+.func   { background: #4a5470; }   /* clear / parens / backspace: dark slate */
+.equals { background: #d94f5c; }   /* = equals: crimson */
+
+.panel { width: 320px; }
+.panel h3 { font-size: 1.05rem; margin-bottom: 10px; }
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #9aa3b2;
+  margin-bottom: 12px;
+}
+
+.dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.dot.online  { background: #2ecc71; }
+.dot.offline { background: #e74c3c; }
+
+#historyList { list-style: none; max-height: 360px; overflow-y: auto; }
+#historyList li {
+  background: #2c3350;   /* dark history items matching the navy card */
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  font-size: 0.95rem;
+}
+.h-expr { word-break: break-all; }
+.h-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+.h-time { font-size: 0.75rem; color: #7a8496; }
+.h-del {
+  padding: 2px 10px;
+  font-size: 0.75rem;
+  border-radius: 6px;
+  background: #4a3040;
+  color: #ff9aa8;
+}
+</style>
+</head>
+<body>
+
+<!-- ============ HTML: what's on the page ============ -->
+<div class="card calculator">
+  <!-- Expression display area -->
+  <div class="display" id="display">0</div>
+  <!-- Error messages returned by the backend show up here -->
+  <div class="error" id="errorMsg"></div>
+
+  <!-- Buttons: data-* attributes tell JS what each button does. Buttons display × ÷,
+       but the characters inserted into the expression are * / -->
+  <!-- The .keyhint badge marks the physical keyboard key for each button
+       (digits and parentheses are their own keys, so they don't need a badge) -->
+  <div class="buttons">
+    <button data-action="clear" class="func" title="Esc: clear / Ctrl+Backspace: clear all">C<span class="keyhint">Esc</span></button>
+    <button data-key="(" class="func">(</button>
+    <button data-key=")" class="func">)</button>
+    <button data-action="backspace" class="func">⌫<span class="keyhint">Backspace</span></button>
+
+    <button data-key="7">7</button>
+    <button data-key="8">8</button>
+    <button data-key="9">9</button>
+    <button data-key="/" class="op">÷<span class="keyhint">/</span></button>
+
+    <button data-key="4">4</button>
+    <button data-key="5">5</button>
+    <button data-key="6">6</button>
+    <button data-key="*" class="op">×<span class="keyhint">*</span></button>
+
+    <button data-key="1">1</button>
+    <button data-key="2">2</button>
+    <button data-key="3">3</button>
+    <button data-key="-" class="op">−<span class="keyhint">-</span></button>
+
+    <button data-key="0">0</button>
+    <button data-key=".">.</button>
+    <button data-action="equals" class="equals">=<span class="keyhint">Enter</span></button>
+    <button data-key="+" class="op">+<span class="keyhint">+</span></button>
+  </div>
+
+  <!-- Shortcut guide: the calculator is fully usable without a mouse -->
+  <div class="kbd-tips">Keyboard: digits ( ) . · Enter evaluate · Backspace delete · Esc clear · Ctrl+Backspace clear all</div>
+</div>
+
+<!-- History panel -->
+<div class="card panel">
+  <h3>Calculation History</h3>
+  <div class="status">
+    <span class="dot offline" id="statusDot"></span>
+    <span id="statusText">Connecting…</span>
+  </div>
+  <ul id="historyList"></ul>
+</div>
+
+<script>
+'use strict';
+/* ============ JavaScript: what happens when a button is clicked ============
+   Java analogy: let variables ≈ member fields of an object, the functions below ≈ methods,
+   event listeners ≈ Swing's addActionListener, fetch ≈ calling a method over the network. */
+
+// Base URL of the backend service
+const API_BASE = 'http://localhost:8080';
+
+// ---------- State (like member variables) ----------
+let expr = '';            // current expression, e.g. "1+2*3" (internally uses * / - +)
+let lastResult = '';      // last result returned by the backend (lets an operator continue from the result)
+let justEvaluated = false;// just evaluated: digits/parens start fresh, operators continue from the result
+let pending = false;      // true while waiting for the backend response (prevents double clicks)
+
+// ---------- Element references (like getting widget references) ----------
+const display = document.getElementById('display');
+const errorMsg = document.getElementById('errorMsg');
+const historyList = document.getElementById('historyList');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+
+// ---------- Utility functions ----------
+function updateDisplay() {
+  display.textContent = expr === '' ? '0' : expr;
+}
+
+function showError(msg) {
+  errorMsg.textContent = msg || '';
+}
+
+function setOnline(ok) {
+  statusDot.className = 'dot ' + (ok ? 'online' : 'offline');
+  statusText.textContent = ok ? 'Connected' : 'Offline';
+}
+
+// Clean up trailing zeros and floating-point noise: 20.0 → "20", 0.30000000004 → "0.3"
+function formatNumber(n) {
+  const num = Number(n);
+  if (!isFinite(num)) return String(n);
+  return String(parseFloat(num.toFixed(10)));
+}
+
+// Prevent special characters in backend data from breaking the page structure
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+// ---------- Input logic ----------
+function press(key) {
+  if (pending) return;
+  showError('');
+  if (justEvaluated) {
+    // Just evaluated: operator → continue from the result (9 then + → "9+"); digit/paren → start over
+    expr = '+-*/'.includes(key) ? lastResult : '';
+    justEvaluated = false;
+  }
+  expr += key;
+  updateDisplay();
+}
+
+function backspace() {
+  if (pending) return;
+  showError('');
+  justEvaluated = false;
+  expr = expr.slice(0, -1);   // remove the last character
+  updateDisplay();
+}
+
+function clearAll() {
+  expr = '';
+  justEvaluated = false;
+  showError('');
+  updateDisplay();
+}
+
+// ---------- Send the expression to the backend for calculation ----------
+async function evaluate() {
+  if (pending || expr === '') return;
+  pending = true;
+  showError('');
+
+  try {
+    // Send only the expression — the calculation is completed by the backend
+    const resp = await fetch(API_BASE + '/api/calculate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },   // tell the backend the body is JSON
+      body: JSON.stringify({ expression: expr })          // JS object → JSON string
+    });
+    const data = await resp.json();
+
+    if (!resp.ok || data.success === false) {
+      // The backend explicitly failed (invalid expression, division by zero…) → show its message
+      showError(data.message || ('HTTP ' + resp.status));
+    } else {
+      lastResult = formatNumber(data.result);
+      expr = lastResult;          // display the result computed by the backend
+      justEvaluated = true;
+      updateDisplay();
+      await loadHistory();        // re-query the history
+      setOnline(true);
+    }
+  } catch (e) {
+    // Backend not running / network unreachable → show a hint
+    setOnline(false);
+    showError('Cannot connect to server');
+  }
+
+  pending = false;
+}
+
+// ---------- History: read / delete, all through backend APIs ----------
+async function loadHistory() {
+  try {
+    const resp = await fetch(API_BASE + '/api/history');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const list = await resp.json();
+
+    historyList.innerHTML = '';   // clear first, then re-render from backend data
+    list.forEach(function (r) {
+      const li = document.createElement('li');
+      li.innerHTML =
+        '<div class="h-expr">' + escapeHtml(r.expression) + ' = ' + formatNumber(r.result) + '</div>' +
+        '<div class="h-row">' +
+          '<span class="h-time">' + escapeHtml(String(r.time || '')) + '</span>' +
+          '<button class="h-del" data-id="' + r.id + '">Delete</button>' +
+        '</div>';
+      historyList.appendChild(li);
+    });
+    setOnline(true);
+  } catch (e) {
+    setOnline(false);
+  }
+}
+
+// Delete one history record: call the DELETE API, then re-query on success
+async function deleteRecord(id) {
+  if (pending) return;
+  pending = true;
+  try {
+    const resp = await fetch(API_BASE + '/api/history/' + id, { method: 'DELETE' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    await loadHistory();
+    setOnline(true);
+  } catch (e) {
+    setOnline(false);
+    showError('Delete failed, please try again');
+  }
+  pending = false;
+}
+
+// ---------- Event bindings ----------
+document.querySelectorAll('.buttons button').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    const k = btn.dataset.key;        // data-key="7"   → dataset.key
+    const act = btn.dataset.action;   // data-action="clear" → dataset.action
+    if (k !== undefined) press(k);
+    else if (act === 'equals') evaluate();
+    else if (act === 'clear') clearAll();
+    else if (act === 'backspace') backspace();
+    btn.blur();   // blur after handling: prevents Enter/Space from re-triggering this button later
+  });
+});
+
+// Delete buttons in the history panel are generated dynamically, so use event delegation
+historyList.addEventListener('click', function (e) {
+  const btn = e.target.closest('.h-del');   // walk up from the click target to find the delete button
+  if (btn) deleteRecord(btn.dataset.id);
+});
+
+// ---------- Keyboard shortcuts ----------
+// Key → on-screen button lookup table: pressing a key makes the matching button "flash",
+// so the user can see the keyboard is actually connected.
+// Java analogy: like a HashMap<key, button>; keyButtonMap['7'] returns the "7" button object.
+const keyButtonMap = {};
+document.querySelectorAll('.buttons button').forEach(function (btn) {
+  if (btn.dataset.key !== undefined) keyButtonMap[btn.dataset.key] = btn;
+});
+// Function keys have no data-key, so register them explicitly
+keyButtonMap['Enter']     = document.querySelector('[data-action="equals"]');    // the = button
+keyButtonMap['Backspace'] = document.querySelector('[data-action="backspace"]'); // backspace
+keyButtonMap['Escape']    = document.querySelector('[data-action="clear"]');     // clear
+
+// Temporarily add the .pressed class (brightens in CSS), then remove it after 120ms.
+// Java analogy: setTimeout ≈ a one-shot Timer task.
+function flashButton(btn) {
+  if (!btn) return;   // key not present on the calculator → just skip it
+  btn.classList.add('pressed');
+  setTimeout(function () { btn.classList.remove('pressed'); }, 120);
+}
+
+document.addEventListener('keydown', function (e) {
+  if (e.repeat) return;   // ignore auto-repeat: holding Enter must not spam calculation requests
+  const k = e.key;
+
+  if ((k >= '0' && k <= '9') || k === '.' || k === '(' || k === ')') { press(k); flashButton(keyButtonMap[k]); }
+  else if (k === '+' || k === '-' || k === '*') { press(k); flashButton(keyButtonMap[k]); }
+  else if (k === '/') { e.preventDefault(); press('/'); flashButton(keyButtonMap['/']); }   // intercept /: stops the browser's quick-find
+  else if (k === 'Enter' || k === '=') { e.preventDefault(); evaluate(); flashButton(keyButtonMap['Enter']); }
+  else if (k === 'Backspace') {
+    e.preventDefault();    // intercept backspace: prevents the browser's "go back" action
+    if (e.ctrlKey) { clearAll(); flashButton(keyButtonMap['Escape']); }   // Ctrl+Backspace = clear all
+    else { backspace(); flashButton(keyButtonMap['Backspace']); }
+  }
+  else if (k === 'Escape') { clearAll(); flashButton(keyButtonMap['Escape']); }
+});
+
+// ---------- On page load: connect to the backend and show the history ----------
+loadHistory();
+updateDisplay();
+</script>
+</body>
+</html>
